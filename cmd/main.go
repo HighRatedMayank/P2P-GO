@@ -1,62 +1,56 @@
-// File: P2P-GO/cmd/main.go
-
 package main
 
 import (
-    "log"
-    "net/http"
+	"log"
+	"net/http"
 
-    "github.com/gorilla/websocket"
-    "github.com/google/uuid"
+	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 
-    "github.com/AyushSriv06/P2P-GO/pkg"
+	"P2P-GO/pkg/signaling"
 )
 
 var upgrader = websocket.Upgrader{
-    ReadBufferSize:  1024,
-    WriteBufferSize: 1024,
-    CheckOrigin: func(r *http.Request) bool {
-        return true 
-    },
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
 }
 
 func main() {
-    server := signaling.NewSignalingServer()
-    go server.Run()
+	server := signaling.NewSignalingServer()
+	go server.Run()
 
-    http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-        
-        conn, err := upgrader.Upgrade(w, r, nil)
-        if err != nil {
-            log.Printf("Error upgrading connection: %v", err)
-            return
-        }
+	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 
-        clientID := uuid.New().String()
-        log.Printf("New client connected: %s", clientID)
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			log.Printf("Error upgrading connection: %v", err)
+			return
+		}
 
-        
-        client := signaling.NewClient(server, conn, clientID)
+		clientID := uuid.New().String()
+		log.Printf("New client connected: %s", clientID)
 
-        
-        server.register <- client
+		client := signaling.NewClient(server, conn, clientID)
 
-        
-        go client.writePump()
-        go client.readPump()
-    })
+		server.Register <- client
 
-    
-    http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-        w.WriteHeader(http.StatusOK)
-        w.Write([]byte("Server is running"))
-    })
+		go client.WritePump()
+		go client.ReadPump()
+	})
 
-    serverAddr := ":8080"
-    log.Printf("Starting P2P signaling server on %s", serverAddr)
-    log.Printf("WebSocket endpoint available at ws://localhost%s/ws", serverAddr)
-    
-    if err := http.ListenAndServe(serverAddr, nil); err != nil {
-        log.Fatalf("Failed to start server: %v", err)
-    }
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("Server is running"))
+	})
+
+	serverAddr := ":8080"
+	log.Printf("Starting P2P signaling server on %s", serverAddr)
+	log.Printf("WebSocket endpoint available at ws://localhost%s/ws", serverAddr)
+
+	if err := http.ListenAndServe(serverAddr, nil); err != nil {
+		log.Fatalf("Failed to start server: %v", err)
+	}
 }

@@ -152,7 +152,7 @@ func (pc *PeerConnection) HandleOffer(offerStr string) (string, error) {
 func (pc *PeerConnection) HandleAnswer(answerStr string) error {
 	var answer webrtc.SessionDescription
 	err := json.Unmarshal([]byte(answerStr), &answer)
-	
+
 	if err != nil {
 		return err
 	}

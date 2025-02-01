@@ -13,7 +13,8 @@ type PeerConnection struct {
 	Conn         *webrtc.PeerConnection
 	DataChannel  *webrtc.DataChannel
 	IceConnected chan bool
-	peerID      string
+	peerID       string
+	SendCandidateFunc func([]byte)
 }
 
 type ICECandidate struct {
@@ -22,6 +23,7 @@ type ICECandidate struct {
 	SDPIndex  int    `json:"sdpIndex"`
 }
 
+//returns public stun srevers 
 func NewPeerConnectionConfig() *webrtc.Configuration {
 	return &webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
@@ -43,26 +45,25 @@ func CreatePeerConncetion() (*PeerConnection, error) {
 	config := NewPeerConnectionConfig()
 
 	//new rtc peer connection
-
-	peerConnection, err := webrtc.NewPeerConnection(*config);
+	peerConnection, err := webrtc.NewPeerConnection(*config)
 
 	if err != nil {
 		panic(err)
 	}
 
-	pc := &PeerConnection {
-		Conn: peerConnection,
+	pc := &PeerConnection{
+		Conn:         peerConnection,
 		IceConnected: make(chan bool),
 	}
 
 	//ice connection state handling
-	peerConnection.OnICEConnectionStateChange(func (state webrtc.ICEConnectionState)  {
+	peerConnection.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
 		log.Printf("ICE Connection State: %s", state.String())
 
 		switch state {
 		case webrtc.ICEConnectionStateConnected:
 			pc.IceConnected <- true
-        
+
 		case webrtc.ICEConnectionStateFailed:
 			pc.IceConnected <- false
 		}
@@ -72,83 +73,82 @@ func CreatePeerConncetion() (*PeerConnection, error) {
 }
 
 func (pc *PeerConnection) CreateDataChannel() error {
-	dataChannel , err := pc.Conn.CreateDataChannel("file-transfer", nil);
+	dataChannel, err := pc.Conn.CreateDataChannel("file-transfer", nil)
 
 	if err != nil {
-	    panic(err)
+		panic(err)
 	}
 
-	pc.DataChannel = dataChannel;
+	pc.DataChannel = dataChannel
 
 	dataChannel.OnOpen(func() {
-        log.Println("Data channel opened")
-    })
+		log.Println("Data channel opened")
+	})
 
-    dataChannel.OnMessage(func(msg webrtc.DataChannelMessage) {
-        // Handle incoming messages
-        log.Printf("Received message: %s", string(msg.Data))
-    })
+	dataChannel.OnMessage(func(msg webrtc.DataChannelMessage) {
+		// Handle incoming messages
+		log.Printf("Received message: %s", string(msg.Data))
+	})
 
-    return nil
+	return nil
 }
 
 func (pc *PeerConnection) CreateOffer() (string, error) {
-    // Create offer
-    offer, err := pc.Conn.CreateOffer(nil)
-    if err != nil {
-        return "", err
-    }
+	// Create offer
+	offer, err := pc.Conn.CreateOffer(nil)
+	if err != nil {
+		return "", err
+	}
 
-    // Set local description
-    err = pc.Conn.SetLocalDescription(offer)
-    if err != nil {
-        return "", err
-    }
+	// Set local description
+	err = pc.Conn.SetLocalDescription(offer)
+	if err != nil {
+		return "", err
+	}
 
-    // Convert offer to JSON for transmission
-    offerJSON, err := json.Marshal(offer)
-    if err != nil {
-        return "", err
-    }
+	// Convert offer to JSON for transmission
+	offerJSON, err := json.Marshal(offer)
+	if err != nil {
+		return "", err
+	}
 
-    return string(offerJSON), nil
+	return string(offerJSON), nil
 }
 
 func (pc *PeerConnection) HandleOffer(offerStr string) (string, error) {
-    var offer webrtc.SessionDescription
-    err := json.Unmarshal([]byte(offerStr), &offer)
-    if err != nil {
-        return "", err
-    }
+	var offer webrtc.SessionDescription
+	err := json.Unmarshal([]byte(offerStr), &offer)
+	if err != nil {
+		return "", err
+	}
 
-    // Set remote description
-    err = pc.Conn.SetRemoteDescription(offer)
-    if err != nil {
-        return "", err
-    }
+	// Set remote description
+	err = pc.Conn.SetRemoteDescription(offer)
+	if err != nil {
+		return "", err
+	}
 
-    // Create answer
-    answer, err := pc.Conn.CreateAnswer(nil)
-    if err != nil {
-        return "", err
-    }
+	// Create answer
+	answer, err := pc.Conn.CreateAnswer(nil)
+	if err != nil {
+		return "", err
+	}
 
-    // Set local description
-    err = pc.Conn.SetLocalDescription(answer)
-    if err != nil {
-        return "", err
-    }
+	// Set local description
+	err = pc.Conn.SetLocalDescription(answer)
+	if err != nil {
+		return "", err
+	}
 
-    // Convert answer to JSON
-    answerJSON, err := json.Marshal(answer)
-    if err != nil {
-        return "", err
-    }
+	// Convert answer to JSON
+	answerJSON, err := json.Marshal(answer)
+	if err != nil {
+		return "", err
+	}
 
-    return string(answerJSON), nil
+	return string(answerJSON), nil
 }
-    
-	
+
 func (pc *PeerConnection) HandleAnswer(answerStr string) error {
 	var answer webrtc.SessionDescription
 	err := json.Unmarshal([]byte(answerStr), &answer)
@@ -156,32 +156,35 @@ func (pc *PeerConnection) HandleAnswer(answerStr string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	return pc.Conn.SetRemoteDescription(answer)
 }
 
+//unmarshals a JSON string representing an ICE candidate and 
+//adds it to the peer connection
 func (pc *PeerConnection) AddIceCandidate(candidateStr string) error {
-    var candidate webrtc.ICECandidateInit
-    err := json.Unmarshal([]byte(candidateStr), &candidate)
-    if err != nil {
-        return err
-    }
+	var candidate webrtc.ICECandidateInit
+	err := json.Unmarshal([]byte(candidateStr), &candidate)
+	if err != nil {
+		return err
+	}
 
-    return pc.Conn.AddICECandidate(candidate)
+	return pc.Conn.AddICECandidate(candidate)
 }
 
+//waits for the ICE connection state to be signaled
 func (pc *PeerConnection) WaitForConnection(timeout time.Duration) bool {
-    ctx, cancel := context.WithTimeout(context.Background(), timeout)
-    defer cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
 
-    select {
-    case connected := <-pc.IceConnected:
-        return connected
-    case <- ctx.Done():
-        return false
-    }
+	select {
+	case connected := <-pc.IceConnected:
+		return connected
+	case <-ctx.Done():
+		return false
+	}
 }
 
 func (pc *PeerConnection) Close() error {
-    return pc.Conn.Close()
+	return pc.Conn.Close()
 }

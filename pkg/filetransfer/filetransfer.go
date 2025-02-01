@@ -22,7 +22,7 @@ type FileMetadata struct {
 type FileTransfer struct {
 	Metadata     FileMetadata
 	DataChannel  *webrtc.DataChannel
-	TransferChan chan []byte
+	TransferChan chan []byte //temporary holds received chunks of data
 	mu           sync.Mutex
 	receivedData []byte
 }
@@ -85,7 +85,7 @@ func (ft *FileTransfer) ReceiveFile() error {
 				err := json.Unmarshal(chunk, &metadata)
 
 				if err != nil {
-					return fmt.Errorf("Invalid metadata")
+					return fmt.Errorf("invalid metadata")
 				}
 
 				continue
@@ -106,20 +106,28 @@ func (ft *FileTransfer) ReceiveFile() error {
 	}
 }
 
-func (ft *FileTransfer) saveReceivedFile(metadata FileMetadata, chunks [][]byte) error {
-	//combining chunks
-	fileData := bytes.Join(chunks, []byte{})
+var receiveDirectory string = "."
 
-	//verify hash
-	hash := sha256.Sum256(fileData)
-	if fmt.Sprintf("%x", hash) != metadata.FileHash {
-		return fmt.Errorf("file hash mismathch")
-	}
-
-	// saving ther file
-	return os.WriteFile(metadata.FileName,fileData, 0644) 
+func SetReceiveDirectory(dir string) {
+    receiveDirectory = dir
 }
 
+func (ft *FileTransfer) saveReceivedFile(metadata FileMetadata, chunks [][]byte) error {
+    // Combine chunks
+    fileData := bytes.Join(chunks, []byte{})
+
+    // Verify hash
+    hash := sha256.Sum256(fileData)
+    if fmt.Sprintf("%x", hash) != metadata.FileHash {
+        return fmt.Errorf("file hash mismatch")
+    }
+
+    // Construct full file path
+    fullPath := filepath.Join(receiveDirectory, metadata.FileName)
+
+    // Save the file
+    return os.WriteFile(fullPath, fileData, 0644) 
+}
 //integrating signaling server
 func (ft *FileTransfer) SetupDataChannelHandlers() {
     ft.DataChannel.OnMessage(func(msg webrtc.DataChannelMessage) {

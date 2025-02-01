@@ -16,7 +16,7 @@ type SignalingServer struct {
 }
 
 type Client struct {
-    Server   *SignalingServer
+    Server   *SignalingServer //ref to signal server
     Conn     *websocket.Conn
     Send     chan []byte
     ID       string
@@ -30,6 +30,7 @@ func NewSignalingServer() *SignalingServer {
     }
 }
 
+//registering and unregistering clients
 func (s *SignalingServer) Run() {
     for {
         select {
@@ -51,6 +52,8 @@ func (s *SignalingServer) Run() {
     }
 }
 
+//broadcasting the list of available clients to let the client 
+//know which other peers are avilable for connection
 func (s *SignalingServer) broadcastPeerList() {
     peers := make([]string, 0, len(s.Clients))
     for id := range s.Clients {
@@ -82,12 +85,14 @@ func NewClient(server *SignalingServer, conn *websocket.Conn, id string) *Client
     }
 }
 
+//continuosly listning for messages from websocket
 func (c *Client) ReadPump() {
     defer func() {
         c.Server.Unregister <- c
         c.Conn.Close()
     }()
 
+    //reding the messages from the websocket
     for {
         _, message, err := c.Conn.ReadMessage()
         if err != nil {
@@ -97,14 +102,18 @@ func (c *Client) ReadPump() {
             break
         }
 
+        //unmarshaling the incoming json into signalmessage struct
         var signal SignalMessage
         if err := json.Unmarshal(message, &signal); err != nil {
             log.Printf("error unmarshaling message: %v", err)
             continue
         }
 
+        //populating the FormId field with sender's clientId
         signal.FormId = c.ID
 
+        //sends the message to specific client using the send channel
+        //if the message has a toId
         if signal.ToId != "" {
             c.Server.mu.RLock()
             if recipient, ok := c.Server.Clients[signal.ToId]; ok {
@@ -116,6 +125,8 @@ func (c *Client) ReadPump() {
     }
 }
 
+//listens on the Send channel for messages to 
+//send to the client over the WebSocket
 func (c *Client) WritePump() {
     defer func() {
         c.Conn.Close()
@@ -123,7 +134,7 @@ func (c *Client) WritePump() {
 
     for {
         select {
-        case message, ok := <-c.Send:
+        case message, ok := <- c.Send:
             if !ok {
                 c.Conn.WriteMessage(websocket.CloseMessage, []byte{})
                 return
